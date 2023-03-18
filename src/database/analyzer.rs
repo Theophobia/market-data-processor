@@ -1,16 +1,10 @@
 use std::time::SystemTime;
-use sqlx::{Decode, Row, Sqlite};
-use sqlx::database::HasValueRef;
-use sqlx::error::BoxDynError;
-use sqlx::sqlite::SqliteRow;
-use crate::database::db::Database;
-use crate::database::sqlite::SqliteDatabase;
+use crate::database::postgres::PostgresDatabase;
 
-pub struct SqliteAbsenceAnalyser {}
+pub struct PostgresAbsenceAnalyser {}
 
-impl SqliteAbsenceAnalyser {
-	pub async fn analyze(db: &SqliteDatabase) {
-
+impl PostgresAbsenceAnalyser {
+	pub async fn analyze(db: &PostgresDatabase) {
 	}
 
 	pub fn curr_time_millis() -> u64 {

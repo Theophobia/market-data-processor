@@ -1,9 +1,9 @@
 pub mod database;
 
 use serde::{Deserialize, Serialize};
-use crate::database::analyzer::SqliteAbsenceAnalyser;
+use crate::database::analyzer::PostgresAbsenceAnalyser;
 use crate::database::db::Database;
-use crate::database::docker_pg::{MySqlDatabase, MySqlDatabaseSetup};
+use crate::database::postgres::{PostgresDatabase, PostgresDatabaseSetup};
 use crate::database::sqlite::SqliteDatabase;
 
 #[derive(Deserialize)]
@@ -61,8 +61,8 @@ async fn main() {
 	// let db: SqliteDatabase = SqliteDatabase::new().await;
 	// SqliteDatabaseSetup::setup(&db).await.unwrap();
 
-	let db = MySqlDatabase::new().await;
-	MySqlDatabaseSetup::setup(&db).await;
+	let db = PostgresDatabase::new().await;
+	PostgresDatabaseSetup::setup(&db).await;
 
 	// let pool: Pool<Sqlite> = SqlitePool::connect(&env::var("DATABASE_URL").unwrap()).await.unwrap();
 	//
