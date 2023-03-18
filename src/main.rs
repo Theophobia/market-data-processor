@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use crate::database::analyzer::PostgresAbsenceAnalyser;
 use crate::database::db::Database;
 use crate::database::postgres::{PostgresDatabase, PostgresDatabaseSetup};
-use crate::database::sqlite::SqliteDatabase;
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct KlinePreProcess {
 	time_open: u64,
@@ -22,6 +22,7 @@ struct KlinePreProcess {
 	unused: String,
 }
 
+#[allow(dead_code)]
 impl KlinePreProcess {
 	pub fn process(&self) -> Kline {
 		let time_open = self.time_open;
@@ -36,6 +37,7 @@ impl KlinePreProcess {
 	}
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Serialize)]
 struct Kline {
 	time_open: u64,
@@ -47,6 +49,7 @@ struct Kline {
 	num_trades: u64,
 }
 
+#[allow(dead_code)]
 impl Kline {
 	pub fn new(time_open: u64, open: f32, high: f32, low: f32, close: f32, volume: f32, num_trades: u64) -> Self {
 		Self { time_open, open, high, low, close, volume, num_trades }
@@ -63,6 +66,8 @@ async fn main() {
 
 	let db = PostgresDatabase::new().await;
 	PostgresDatabaseSetup::setup(&db).await;
+	let missing: Vec<u64> = PostgresAbsenceAnalyser::analyze(&db).await;
+	println!("Memory taken: {}", std::mem::size_of::<u64>());
 
 	// let pool: Pool<Sqlite> = SqlitePool::connect(&env::var("DATABASE_URL").unwrap()).await.unwrap();
 	//

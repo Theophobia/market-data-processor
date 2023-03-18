@@ -1,9 +1,7 @@
 use async_trait::async_trait;
 use std::env;
-use std::time::Duration;
 use sqlx::{Error, PgPool, Pool, Postgres, Transaction};
 use sqlx::postgres::{PgQueryResult, PgRow};
-use crate::database::analyzer::PostgresAbsenceAnalyser;
 use crate::database::db::Database;
 
 pub struct PostgresDatabase {
