@@ -1,0 +1,17 @@
+[package]
+name = "market-data-processor"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-trait = "0.1.66"
+chrono = "0.4.24"
+concat-string = "1.0.1"
+dotenv = "0.15.0"
+serde = { version = "1.0.156", features = ["derive"] }
+serde_json = "1.0.94"
+shlex = "1.1.0"
+sqlx = { version = "0.6.2", features = ["sqlite", "postgres", "mysql", "runtime-tokio-rustls"] }
+tokio = { version = "1.26.0", features = ["macros"] }

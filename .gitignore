@@ -1,0 +1,7 @@
+/target
+
+*.sqlite
+/data
+
+/.idea
+*.imp
