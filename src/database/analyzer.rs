@@ -3,6 +3,7 @@ use std::time::SystemTime;
 use sqlx::Row;
 use crate::database::postgres::PostgresDatabase;
 use crate::trading_pair::TradingPair;
+use crate::kline::*;
 
 pub struct PostgresAbsenceAnalyser {}
 
@@ -32,6 +33,31 @@ impl PostgresAbsenceAnalyser {
 		}
 
 		map
+	}
+
+	pub async fn fetch_first_timestamp(trading_pair: TradingPair) -> Option<u64> {
+		let url = format!("https://data.binance.com/api/v3/klines?symbol={trading_pair}&interval=1m&startTime=0&limit=1");
+
+		let res = reqwest::get(&url).await;
+		if res.is_err() {
+			return None;
+		}
+
+		let klines = res.unwrap().json::<Vec<KlinePreProcess>>().await;
+		if klines.is_err() {
+			return None;
+		}
+
+		let klines = klines.unwrap();
+		if klines.len() != 1 {
+			return None;
+		}
+
+		let kline = klines.get(0).unwrap().process();
+
+		println!("{:?}", kline.time_open);
+
+		Some(kline.time_open)
 	}
 
 	pub fn curr_time_millis() -> u64 {
