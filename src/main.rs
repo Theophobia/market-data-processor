@@ -1,6 +1,7 @@
 pub mod database;
 pub mod trading_pair;
 pub mod kline;
+pub mod error;
 
 use crate::database::analyzer::PostgresAbsenceAnalyser;
 use crate::database::db::Database;
@@ -18,8 +19,17 @@ async fn main() {
 	let missing = PostgresAbsenceAnalyser::analyze(&db, &pairs).await;
 
 	for pair in pairs {
-		PostgresAbsenceAnalyser::fetch_first_timestamp(pair).await;
-	}
+		let first = PostgresAbsenceAnalyser::fetch_first_timeframe(pair).await;
+		let last = PostgresAbsenceAnalyser::fetch_last_complete_timeframe(pair).await;
 
-	println!("{missing:?}");
+		if first.is_some() && last.is_some() {
+			let first = first.unwrap();
+			let last = last.unwrap();
+
+			// println!("{}", first);
+			// println!("{}", last);
+
+			let _ = PostgresAbsenceAnalyser::fetch_all_in_timeframe(first, last, pair).await;
+		}
+	}
 }
