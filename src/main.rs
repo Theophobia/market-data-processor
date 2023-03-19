@@ -1,4 +1,5 @@
 pub mod database;
+pub mod trading_pair;
 
 use serde::{Deserialize, Serialize};
 use crate::database::analyzer::PostgresAbsenceAnalyser;
@@ -59,85 +60,14 @@ impl Kline {
 
 #[tokio::main]
 async fn main() {
+	use crate::trading_pair::TradingPair::*;
+
 	dotenv::dotenv().unwrap();
 
-	// let db: SqliteDatabase = SqliteDatabase::new().await;
-	// SqliteDatabaseSetup::setup(&db).await.unwrap();
-
+	let pairs = vec![BTCUSDT];
 	let db = PostgresDatabase::new().await;
-	PostgresDatabaseSetup::setup(&db).await;
-	let missing: Vec<u64> = PostgresAbsenceAnalyser::analyze(&db).await;
-	println!("Memory taken: {}", std::mem::size_of::<u64>());
+	PostgresDatabaseSetup::setup(&db, &pairs).await;
+	let missing = PostgresAbsenceAnalyser::analyze(&db, &pairs).await;
 
-	// let pool: Pool<Sqlite> = SqlitePool::connect(&env::var("DATABASE_URL").unwrap()).await.unwrap();
-	//
-	// let res = sqlx::query(r"
-	// create table if not exists klines
-	// (
-	// 	time_open integer not null
-	// 		constraint table_name_pk
-	// 			primary key,
-	// 	open real not null,
-	// 	high real not null,
-	// 	low real not null,
-	// 	close real not null,
-	// 	volume real not null,
-	// 	num_trades integer not null
-	// );
-	//
-	// create unique index if not exists klines_time_open_uindex
-	// 	on klines (time_open);
-	// ").execute(&pool).await.unwrap();
-
-	// let files: ReadDir = fs::read_dir("data").unwrap();
-	// let files_count = fs::read_dir("data").unwrap().count();
-	// let mut file_number = 0;
-	//
-	// for file_wrapped in files {
-	// 	file_number += 1;
-	// 	println!("File {}/{}", file_number, files_count);
-	//
-	// 	let file_unwrapped = file_wrapped.unwrap();
-	//
-	// 	let file: File = File::open(file_unwrapped.path()).unwrap();
-	// 	let reader = BufReader::new(file);
-	//
-	// 	let json: Vec<KlinePreProcess> = serde_json::from_reader(reader).unwrap();
-	// 	println!("Klines {}", json.len());
-	//
-	// 	let mut transaction = String::with_capacity(200_000);
-	// 	transaction.push_str("begin transaction;\n");
-	//
-	// 	for kline_preprocess in json {
-	// 		let kline = kline_preprocess.process();
-	//
-	// 		let query = format!(r"
-	// 		INSERT INTO klines (time_open, open, high, low, close, volume, num_trades)
-	// 		SELECT {}, {}, {}, {}, {}, {}, {}
-	// 		WHERE NOT EXISTS (
-	// 			SELECT 1 FROM klines WHERE time_open = {}
-	// 		);", kline.time_open, kline.open, kline.high, kline.low, kline.close, kline.volume, kline.num_trades, kline.time_open);
-	//
-	// 		transaction.push_str(query.as_str());
-	// 		transaction.push('\n');
-	// 	}
-	// 	transaction.push_str("commit;");
-	// 	// println!("{}", transaction);
-	//
-	// 	sqlx::query(transaction.as_str()).execute(&pool).await.unwrap();
-	// }
-
-	// let mut curr_time = 1568887320000u64;
-	// let stop_time = 1678978440000u64;
-	//
-	// while curr_time <= stop_time {
-	// 	let query = format!("SELECT 1 FROM klines WHERE time_open = {};", curr_time);
-	// 	let res = sqlx::query(query.as_str()).fetch_optional(&pool).await;
-	//
-	// 	if !(res.is_ok() && res.unwrap().is_some()) {
-	// 		println!("{curr_time}");
-	// 	}
-	//
-	// 	curr_time += 60000000u64;
-	// }
+	println!("{missing:?}");
 }

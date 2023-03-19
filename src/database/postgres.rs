@@ -3,6 +3,7 @@ use std::env;
 use sqlx::{Error, PgPool, Pool, Postgres, Transaction};
 use sqlx::postgres::{PgQueryResult, PgRow};
 use crate::database::db::Database;
+use crate::trading_pair::TradingPair;
 
 pub struct PostgresDatabase {
 	pub(crate) pool: Pool<Postgres>,
@@ -38,7 +39,19 @@ impl Database<PgQueryResult, PgRow> for PostgresDatabase {
 pub struct PostgresDatabaseSetup {}
 
 impl PostgresDatabaseSetup {
-	pub async fn setup(db: &PostgresDatabase) -> Option<sqlx::Error> {
+	pub async fn setup(db: &PostgresDatabase, trading_pairs: &Vec<TradingPair>) -> Option<sqlx::Error> {
+		for pair in trading_pairs {
+			let res = Self::setup_tp(db, pair).await;
+			if res.is_some() {
+				return res;
+			}
+		}
+
+		None
+	}
+
+	pub async fn setup_tp(db: &PostgresDatabase, trading_pair: &TradingPair) -> Option<sqlx::Error> {
+		let pair_lower = trading_pair.to_string().to_lowercase();
 
 		// Try to get a transaction from pool
 		let tx: Result<Transaction<Postgres>, Error> = db.pool.begin().await;
@@ -50,11 +63,11 @@ impl PostgresDatabaseSetup {
 		//
 		// Create klines table
 		//
-		sqlx::query(r"
-		create table if not exists klines
+		let query = format!(r"
+		create table if not exists klines_{pair_lower}
 		(
 			time_open  bigint				not null
-				constraint klines_pk
+				constraint klines_{pair_lower}_pk
 					primary key,
 			open       double precision		not null,
 			high       double precision		not null,
@@ -63,65 +76,54 @@ impl PostgresDatabaseSetup {
 			volume     double precision		not null,
 			num_trades integer              not null
 		);
-		").execute(&mut tx).await.unwrap();
+		");
+		sqlx::query(query.as_str()).execute(&mut tx).await.unwrap();
 
-		// Add index and transfer ownership
-		sqlx::query(r"
-		alter table klines
+		// Transfer ownership
+		let query = format!(r"
+		alter table klines_{pair_lower}
 			owner to postgres;
-		").execute(&mut tx).await.unwrap();
-		sqlx::query(r"
-		create unique index if not exists klines_time_open_uindex
-			on klines (time_open);
-		").execute(&mut tx).await.unwrap();
+		");
+		sqlx::query(query.as_str()).execute(&mut tx).await.unwrap();
+
+		// Add index
+		let query = format!(r"
+		create unique index if not exists klines_{pair_lower}_time_open_uindex
+			on klines_{pair_lower} (time_open);
+		");
+		sqlx::query(query.as_str()).execute(&mut tx).await.unwrap();
+
 
 		//
-		// Create possible open times table
+		// Create possible open times table (pot)
 		//
-		sqlx::query(r"
-		create table if not exists possible_open_times
+		let query = format!(r"
+		create table if not exists pot_{pair_lower}
 		(
 			time_open bigint not null
-				constraint possible_open_times_pk
+				constraint pot_{pair_lower}_pk
 					primary key
 		);
-		").execute(&mut tx).await.unwrap();
+		");
+		sqlx::query(query.as_str()).execute(&mut tx).await.unwrap();
 
-		// Add index and transfer ownership
-		sqlx::query(r"
-		alter table possible_open_times
+		// Transfer ownership
+		let query = format!(r"
+		alter table pot_{pair_lower}
 			owner to postgres;
-		").execute(&mut tx).await.unwrap();
-		sqlx::query(r"
-		create unique index if not exists possible_open_times_time_open_uindex
-			on possible_open_times (time_open);
-		").execute(&mut tx).await.unwrap();
+		");
+		sqlx::query(query.as_str()).execute(&mut tx).await.unwrap();
 
+		// Add index
+		let query = format!(r"
+		create unique index if not exists pot_{pair_lower}_time_open_uindex
+			on pot_{pair_lower} (time_open);
+		");
+		sqlx::query(query.as_str()).execute(&mut tx).await.unwrap();
+
+
+		// Commit all table generations
 		let res = tx.commit().await;
-
-		// // Try to get a transaction from pool
-		// let mut tx: Transaction<Postgres>;
-		// tx = db.pool.begin().await.unwrap();
-		//
-		// let mut i = 0;
-		// let start_time = 1568887320000u64;
-		// let mut curr_time = start_time;
-		// let end_time = PostgresAbsenceAnalyser::last_complete_1m_timestamp();
-		//
-		// // 1000 inserts at a time, insert all
-		// while curr_time <= end_time {
-		// 	if i == 1000 {
-		// 		let _res = tx.commit().await;
-		// 		tx = db.pool.begin().await.unwrap();
-		// 		i = 0;
-		// 	} else { i += 1; }
-		//
-		// 	sqlx::query(format!("insert into possible_open_times (time_open) select ({curr_time}) where not exists (select 1 from possible_open_times where time_open = {curr_time})").as_str())
-		// 		.execute(&mut tx).await.unwrap();
-		// 	curr_time += 60_000;
-		// }
-		//
-		// let res = tx.commit().await;
 
 		res.err()
 	}

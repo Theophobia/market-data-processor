@@ -1,20 +1,35 @@
+use std::collections::HashMap;
 use std::time::SystemTime;
 use sqlx::Row;
 use crate::database::postgres::PostgresDatabase;
+use crate::trading_pair::TradingPair;
 
 pub struct PostgresAbsenceAnalyser {}
 
 impl PostgresAbsenceAnalyser {
-	pub async fn analyze(db: &PostgresDatabase) -> Vec<u64> {
-		let map  = sqlx::query(r"
-		SELECT possible_open_times.time_open
-		FROM possible_open_times
-		LEFT JOIN klines ON possible_open_times.time_open = klines.time_open
-		WHERE klines.time_open IS NULL;
-		").fetch_all(&db.pool).await.unwrap()
-			.iter()
-			.map(|row| { let a: i64 = row.get(0); a as u64 })
-			.collect();
+	pub async fn analyze(db: &PostgresDatabase, trading_pairs: &Vec<TradingPair>) -> HashMap<TradingPair, Vec<u64>> {
+		let mut map: HashMap<TradingPair, Vec<u64>> = HashMap::with_capacity(trading_pairs.len());
+
+		for pair in trading_pairs {
+			let pair_lower = pair.to_string().to_lowercase();
+
+			let query = format!(r"
+				SELECT pot_{pair_lower}.time_open
+				FROM pot_{pair_lower}
+				LEFT JOIN klines_{pair_lower} ON pot_{pair_lower}.time_open = klines_{pair_lower}.time_open
+				WHERE klines_{pair_lower}.time_open IS NULL;
+			");
+
+			let missing: Vec<u64> = sqlx::query(query.as_str()).fetch_all(&db.pool).await.unwrap()
+				.iter()
+				.map(|row| {
+					let a: i64 = row.get(0);
+					a as u64
+				})
+				.collect();
+
+			map.insert(pair.clone(), missing);
+		}
 
 		map
 	}
