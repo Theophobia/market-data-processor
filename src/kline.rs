@@ -33,7 +33,7 @@ impl KlinePreProcess {
 }
 
 #[allow(dead_code)]
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Kline {
 	pub time_open: u64,
 	pub open: f32,
