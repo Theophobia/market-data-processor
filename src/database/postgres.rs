@@ -3,6 +3,8 @@ use std::env;
 use sqlx::{Error, PgPool, Pool, Postgres, Transaction};
 use sqlx::postgres::{PgQueryResult, PgRow};
 use crate::database::db::Database;
+use crate::error::BusinessError;
+use crate::kline::Kline;
 use crate::trading_pair::TradingPair;
 
 pub struct PostgresDatabase {
@@ -36,9 +38,9 @@ impl Database<PgQueryResult, PgRow> for PostgresDatabase {
 	}
 }
 
-pub struct PostgresDatabaseSetup {}
+pub struct PostgresSetup {}
 
-impl PostgresDatabaseSetup {
+impl PostgresSetup {
 	pub async fn setup(db: &PostgresDatabase, trading_pairs: &Vec<TradingPair>) -> Option<sqlx::Error> {
 		for pair in trading_pairs {
 			let res = Self::setup_tp(db, pair).await;
@@ -126,5 +128,54 @@ impl PostgresDatabaseSetup {
 		let res = tx.commit().await;
 
 		res.err()
+	}
+}
+
+pub struct PostgresExecutor {}
+
+impl PostgresExecutor {
+	pub async fn insert_klines(db: &PostgresDatabase, trading_pair: TradingPair, klines: &Vec<Kline>) -> Option<BusinessError> {
+		let pair_lower = trading_pair.to_string().to_lowercase();
+
+		// Try to get a transaction from pool
+		let tx: Result<Transaction<Postgres>, Error> = db.pool.begin().await;
+		if tx.is_err() {
+			return Some(BusinessError::CANNOT_CREATE_SQL_TRANSACTION);
+		}
+		let mut tx = tx.unwrap();
+		let mut i = 0;
+
+		// Iterate over klines, insert those that are absent
+		for kline in klines {
+			if i == 10_000 {
+				tx.commit().await.unwrap();
+				tx = db.pool.begin().await.unwrap();
+				i = 0;
+			}
+			i += 1;
+
+			// let query = format!(r"
+			// 	INSERT INTO klines_{pair_lower} (time_open, open, high, low, close, volume, num_trades)
+			// 	SELECT {}, {}, {}, {}, {}, {}, {}
+			// 	WHERE NOT EXISTS (
+			// 		SELECT 1 FROM klines_{pair_lower} WHERE time_open = {}
+			// 	);
+			// ", kline.time_open, kline.open, kline.high, kline.low, kline.close, kline.volume, kline.num_trades, kline.time_open);
+
+			let query = format!(r"
+				INSERT INTO klines_{pair_lower} (time_open, open, high, low, close, volume, num_trades)
+				VALUES ({}, {}, {}, {}, {}, {}, {});
+			", kline.time_open, kline.open, kline.high, kline.low, kline.close, kline.volume, kline.num_trades);
+
+			sqlx::query(query.as_str()).execute(&mut tx).await.unwrap();
+		}
+
+		let res = tx.commit().await;
+
+		if res.is_err() {
+			return Some(BusinessError::SQL_TRANSACTION_ERROR);
+		}
+
+		None
 	}
 }

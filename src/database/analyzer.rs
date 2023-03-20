@@ -1,15 +1,9 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap};
 use std::time::SystemTime;
 use sqlx::Row;
-use futures::{stream, StreamExt};
-use reqwest::{Client, Error, Response};
-use tokio;
-use crate::database::db::Database;
 use crate::database::postgres::PostgresDatabase;
-use crate::error::BusinessError;
 use crate::trading_pair::TradingPair;
-use crate::kline::*;
-
+use crate::logger::logger::{Logger, LogLevel};
 
 pub struct PostgresAbsenceAnalyser {}
 
@@ -46,6 +40,12 @@ impl PostgresAbsenceAnalyser {
 		Or some SQL error occurred
 	 */
 	pub async fn get_first_timeframe(db: &PostgresDatabase, trading_pair: TradingPair) -> Option<u64> {
+		Logger::log_str(
+			LogLevel::FINE,
+			"get_first_timeframe()@database/analyzer.rs",
+			format!("Entering function with trading_pair={trading_pair}").as_str()
+		);
+
 		let pair_lower = trading_pair.to_string().to_lowercase();
 
 		let query = format!(r"
@@ -54,26 +54,52 @@ impl PostgresAbsenceAnalyser {
 
 		let res = sqlx::query(query.as_str()).fetch_optional(&db.pool).await;
 		if res.is_err() {
+			Logger::log_str(
+				LogLevel::INFO,
+				"get_first_timeframe()@database/analyzer.rs",
+				"Query \"SELECT MIN(time_open)...\" returned error, function is returning None as a result"
+			);
 			return None;
 		}
 
 		let res = res.unwrap();
 		if res.is_none() {
+			Logger::log_str(
+				LogLevel::FINE,
+				"get_last_timeframe()@database/analyzer.rs",
+				format!("Query \"SELECT MIN(time_open)...\" returned Option as None (no MIN time_open exists, table is empty), function is returning None as a result").as_str()
+			);
 			return None;
 		}
 
 		let row = res.unwrap();
 		let res: Result<i64, sqlx::Error> = row.try_get(0);
 		if res.is_err() {
+			Logger::log_str(
+				LogLevel::FINE,
+				"get_last_timeframe()@database/analyzer.rs",
+				format!("Could not get first element of row for some reason? Function is returning None as a result").as_str()
+			);
 			return None;
 		}
 
 		let time = res.unwrap() as u64;
 
+		Logger::log_str(
+			LogLevel::FINE,
+			"get_last_timeframe()@database/analyzer.rs",
+			format!("Found first timeframe to be {time}, returning that as a result").as_str()
+		);
 		Some(time)
 	}
 
 	pub async fn get_last_timeframe(db: &PostgresDatabase, trading_pair: TradingPair) -> Option<u64> {
+		Logger::log_str(
+			LogLevel::FINE,
+			"get_last_timeframe()@database/analyzer.rs",
+			format!("Entering function with trading_pair={trading_pair}").as_str()
+		);
+
 		let pair_lower = trading_pair.to_string().to_lowercase();
 
 		let query = format!(r"
@@ -82,22 +108,42 @@ impl PostgresAbsenceAnalyser {
 
 		let res = sqlx::query(query.as_str()).fetch_optional(&db.pool).await;
 		if res.is_err() {
+			Logger::log_str(
+				LogLevel::INFO,
+				"get_last_timeframe()@database/analyzer.rs",
+				"Query \"SELECT MAX(time_open)...\" returned error, function is returning None as a result"
+			);
 			return None;
 		}
 
 		let res = res.unwrap();
 		if res.is_none() {
+			Logger::log_str(
+				LogLevel::FINE,
+				"get_last_timeframe()@database/analyzer.rs",
+				format!("Query \"SELECT MAX(time_open)...\" returned Option as None (no MAX time_open exists, table is empty), function is returning None as a result").as_str()
+			);
 			return None;
 		}
 
 		let row = res.unwrap();
 		let res: Result<i64, sqlx::Error> = row.try_get(0);
 		if res.is_err() {
+			Logger::log_str(
+				LogLevel::FINE,
+				"get_last_timeframe()@database/analyzer.rs",
+				format!("Could not get first element of row for some reason? Function is returning None as a result").as_str()
+			);
 			return None;
 		}
 
 		let time = res.unwrap() as u64;
 
+		Logger::log_str(
+			LogLevel::FINE,
+			"get_last_timeframe()@database/analyzer.rs",
+			format!("Found last timeframe to be {time}, returning that as a result").as_str()
+		);
 		Some(time)
 	}
 

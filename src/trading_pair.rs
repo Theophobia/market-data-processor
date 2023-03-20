@@ -4,12 +4,14 @@ use std::fmt::{Display, Formatter};
 #[derive(Eq, PartialEq, Hash, Clone, Copy, Debug)]
 pub enum TradingPair {
 	BTCUSDT,
+	LDOUSDT,
 }
 
 impl Display for TradingPair {
 	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
 		let s: &str = match self {
 			TradingPair::BTCUSDT => {"BTCUSDT"}
+			TradingPair::LDOUSDT => {"LDOUSDT"}
 		};
 
 		write!(f, "{s}")
