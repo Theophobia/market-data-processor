@@ -160,6 +160,8 @@ impl PostgresAbsenceAnalyser {
 	}
 
 	pub async fn fetch_all_in_timeframe(from: u64, to: u64, trading_pair: TradingPair) -> Result<(), BusinessError> {
+
+		// Checks for wrong arguments
 		if from % 60_000 != 0 || to % 60_000 != 0 {
 			return Err(BusinessError::UNALIGNED_TIMEFRAME);
 		}
@@ -168,6 +170,7 @@ impl PostgresAbsenceAnalyser {
 			return Err(BusinessError::INCORRECT_ARGUMENT_ORDER);
 		}
 
+		// Get timeframe jumps
 		let timeframe_jumps = Self::generate_timeframe_jumps(from, to).await;
 		if timeframe_jumps.is_err() {
 			return Err(BusinessError::UNSPECIFIED_ERROR);
@@ -175,24 +178,26 @@ impl PostgresAbsenceAnalyser {
 		let timeframe_jumps = timeframe_jumps.unwrap();
 		let timeframe_jumps: Vec<u64> = timeframe_jumps.iter().take(10).cloned().collect(); // TODO
 
-		let thread_count = 8;
+		// Specify thread count
+		let thread_count = 6;
 
 		// Create the shared queue
 		let mut queue = VecDeque::with_capacity(timeframe_jumps.len());
 
-		// Enqueue the numbers
+		// Enqueue the timeframes
 		for jump in timeframe_jumps {
 			queue.push_back(jump);
 		}
 
 		let request_client = Client::new();
 
+		// Run the requests
 		let bodies = stream::iter(queue).map(|timeframe| {
 			let client = &request_client;
 
 			async move {
 				let res: Result<Response, Error> = client.get(format!(r"
-					https://data.binance.com/api/v3/klines?symbol={trading_pair}&startTime={timeframe}&interval=1m&limit=1
+					https://data.binance.com/api/v3/klines?symbol={trading_pair}&startTime={timeframe}&interval=1m&limit=1000
 				")).send().await;
 
 				if res.is_err() {
