@@ -1,5 +1,5 @@
 use std::fmt::{Display, Formatter};
-use std::fs::File;
+use std::fs::{create_dir, File};
 use std::io::Write;
 use std::sync::Mutex;
 use chrono::Utc;
@@ -30,7 +30,11 @@ pub struct Logger {
 
 impl Logger {
 	pub fn new() -> Self {
-		let f = File::create(format!("log_{}.txt", Utc::now().format("%Y-%m-%d_%H-%M-%S"))).unwrap();
+		if create_dir("log").is_err() {
+			// already exists, or permission error
+		}
+
+		let f = File::create(format!("log/{}.txt", Utc::now().format("%Y-%m-%d_%H-%M-%S"))).unwrap();
 
 		Self {output_file: f}
 	}

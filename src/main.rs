@@ -24,7 +24,8 @@ async fn main() {
 	PostgresSetup::setup(&db, &pairs).await;
 
 	for pair in pairs.iter() {
-		PostgresExecutor::fetch_insert_leading_trailing(&db, &api_con, pair).await;
+		let _ = PostgresExecutor::fetch_insert_leading_trailing(&db, &api_con, pair).await;
+		let _ = PostgresExecutor::update_possible_open_times(&db, &api_con, pair).await;
 	}
 
 	let _missing = PostgresAbsenceAnalyser::analyze(&db, &pairs).await;

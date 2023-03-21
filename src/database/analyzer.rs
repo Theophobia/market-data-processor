@@ -8,10 +8,10 @@ use crate::logger::logger::{Logger, LogLevel};
 pub struct PostgresAbsenceAnalyser {}
 
 impl PostgresAbsenceAnalyser {
-	pub async fn analyze(db: &PostgresDatabase, trading_pairs: &Vec<TradingPair>) -> HashMap<TradingPair, Vec<u64>> {
-		let mut map: HashMap<TradingPair, Vec<u64>> = HashMap::with_capacity(trading_pairs.len());
+	pub async fn analyze(db: &PostgresDatabase, pairs: &Vec<TradingPair>) -> HashMap<TradingPair, Vec<u64>> {
+		let mut map: HashMap<TradingPair, Vec<u64>> = HashMap::with_capacity(pairs.len());
 
-		for pair in trading_pairs {
+		for pair in pairs {
 			let pair_lower = pair.to_string().to_lowercase();
 
 			let query = format!(r"
@@ -39,14 +39,14 @@ impl PostgresAbsenceAnalyser {
 		If this returns None, should fetch first timestamp from Binance API
 		Or some SQL error occurred
 	 */
-	pub async fn get_first_timeframe(db: &PostgresDatabase, trading_pair: &TradingPair) -> Option<u64> {
+	pub async fn get_first_timeframe(db: &PostgresDatabase, pair: &TradingPair) -> Option<u64> {
 		Logger::log_str(
 			LogLevel::FINE,
 			"get_first_timeframe() database/analyzer.rs",
-			format!("Entering function with trading_pair={trading_pair}").as_str()
+			format!("Entering function with trading_pair={pair}").as_str()
 		);
 
-		let pair_lower = trading_pair.to_string().to_lowercase();
+		let pair_lower = pair.to_string().to_lowercase();
 
 		let query = format!(r"
 			SELECT MIN(time_open) FROM klines_{pair_lower};
@@ -93,14 +93,14 @@ impl PostgresAbsenceAnalyser {
 		Some(time)
 	}
 
-	pub async fn get_last_timeframe(db: &PostgresDatabase, trading_pair: &TradingPair) -> Option<u64> {
+	pub async fn get_last_timeframe(db: &PostgresDatabase, pair: &TradingPair) -> Option<u64> {
 		Logger::log_str(
 			LogLevel::FINE,
 			"get_last_timeframe() database/analyzer.rs",
-			format!("Entering function with trading_pair={trading_pair}").as_str()
+			format!("Entering function with trading_pair={pair}").as_str()
 		);
 
-		let pair_lower = trading_pair.to_string().to_lowercase();
+		let pair_lower = pair.to_string().to_lowercase();
 
 		let query = format!(r"
 			SELECT MAX(time_open) FROM klines_{pair_lower};
@@ -132,6 +132,60 @@ impl PostgresAbsenceAnalyser {
 			Logger::log_str(
 				LogLevel::FINE,
 				"get_last_timeframe() database/analyzer.rs",
+				format!("Could not get first element of row for some reason? Function is returning None as a result").as_str()
+			);
+			return None;
+		}
+
+		let time = res.unwrap() as u64;
+
+		Logger::log_str(
+			LogLevel::FINE,
+			"get_last_timeframe() database/analyzer.rs",
+			format!("Found last timeframe to be {time}, returning that as a result").as_str()
+		);
+		Some(time)
+	}
+
+	pub async fn get_last_timeframe_pot(db: &PostgresDatabase, pair: &TradingPair) -> Option<u64> {
+		Logger::log_str(
+			LogLevel::FINE,
+			"get_last_timeframe_pot() database/analyzer.rs",
+			format!("Entering function with trading_pair={pair}").as_str()
+		);
+
+		let pair_lower = pair.to_string().to_lowercase();
+
+		let query = format!(r"
+			SELECT MAX(time_open) FROM pot_{pair_lower};
+		");
+
+		let res = sqlx::query(query.as_str()).fetch_optional(&db.pool).await;
+		if res.is_err() {
+			Logger::log_str(
+				LogLevel::INFO,
+				"get_last_timeframe_pot() database/analyzer.rs",
+				"Query \"SELECT MAX(time_open)...\" returned error, function is returning None as a result"
+			);
+			return None;
+		}
+
+		let res = res.unwrap();
+		if res.is_none() {
+			Logger::log_str(
+				LogLevel::FINE,
+				"get_last_timeframe_pot() database/analyzer.rs",
+				format!("Query \"SELECT MAX(time_open)...\" returned Option as None (no MAX time_open exists, table is empty), function is returning None as a result").as_str()
+			);
+			return None;
+		}
+
+		let row = res.unwrap();
+		let res: Result<i64, sqlx::Error> = row.try_get(0);
+		if res.is_err() {
+			Logger::log_str(
+				LogLevel::FINE,
+				"get_last_timeframe_pot() database/analyzer.rs",
 				format!("Could not get first element of row for some reason? Function is returning None as a result").as_str()
 			);
 			return None;

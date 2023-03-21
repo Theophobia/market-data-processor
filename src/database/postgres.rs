@@ -44,8 +44,8 @@ impl Database<PgQueryResult, PgRow> for PostgresDatabase {
 pub struct PostgresSetup {}
 
 impl PostgresSetup {
-	pub async fn setup(db: &PostgresDatabase, trading_pairs: &Vec<TradingPair>) -> Option<sqlx::Error> {
-		for pair in trading_pairs {
+	pub async fn setup(db: &PostgresDatabase, pairs: &Vec<TradingPair>) -> Option<sqlx::Error> {
+		for pair in pairs {
 			let res = Self::setup_tp(db, pair).await;
 			if res.is_some() {
 				return res;
@@ -55,8 +55,8 @@ impl PostgresSetup {
 		None
 	}
 
-	pub async fn setup_tp(db: &PostgresDatabase, trading_pair: &TradingPair) -> Option<sqlx::Error> {
-		let pair_lower = trading_pair.to_string().to_lowercase();
+	async fn setup_tp(db: &PostgresDatabase, pairs: &TradingPair) -> Option<sqlx::Error> {
+		let pair_lower = pairs.to_string().to_lowercase();
 
 		// Try to get a transaction from pool
 		let tx: Result<Transaction<Postgres>, Error> = db.pool.begin().await;
@@ -137,8 +137,8 @@ impl PostgresSetup {
 pub struct PostgresExecutor {}
 
 impl PostgresExecutor {
-	pub async fn insert_klines(db: &PostgresDatabase, trading_pair: &TradingPair, klines: &Vec<Kline>) -> Option<BusinessError> {
-		let pair_lower = trading_pair.to_string().to_lowercase();
+	async fn insert_klines(db: &PostgresDatabase, pair: &TradingPair, klines: &Vec<Kline>) -> Option<BusinessError> {
+		let pair_lower = pair.to_string().to_lowercase();
 
 		// Try to get a transaction from pool
 		let tx: Result<Transaction<Postgres>, Error> = db.pool.begin().await;
@@ -158,7 +158,7 @@ impl PostgresExecutor {
 				Logger::log_str(
 					LogLevel::INFO,
 					"insert_klines() postgres.rs",
-					format!("Committed items").as_str()
+					format!("Committed klines").as_str()
 				);
 
 			}
@@ -189,7 +189,7 @@ impl PostgresExecutor {
 		None
 	}
 
-	pub async fn fetch_and_insert(db: &PostgresDatabase, connector: &impl Connector, pair: &TradingPair, first: u64, last: u64) {
+	async fn fetch_and_insert(db: &PostgresDatabase, connector: &impl Connector, pair: &TradingPair, first: u64, last: u64) {
 		if first == last {
 			Logger::log_str(
 				LogLevel::INFO,
@@ -216,7 +216,7 @@ impl PostgresExecutor {
 		Logger::log_str(
 			LogLevel::INFO,
 			"fetch_and_insert() postgres.rs",
-			format!("Fetched klines, inserting now").as_str(),
+			format!("Fetched {} klines for pair {pair}, inserting now", klines.len()).as_str(),
 		);
 
 		let _ = PostgresExecutor::insert_klines(&db, pair, &klines).await;
@@ -271,6 +271,120 @@ impl PostgresExecutor {
 			Self::fetch_and_insert(&db, connector, pair, first_remote, first_local).await;
 			Self::fetch_and_insert(&db, connector, pair, last_local, last_remote).await;
 		}
+	}
+
+	pub async fn insert_possible_open_times(db: &PostgresDatabase, pair: &TradingPair, times: &Vec<u64>) -> Option<BusinessError> {
+		let pair_lower = pair.to_string().to_lowercase();
+
+		// Try to get a transaction from pool
+		let tx: Result<Transaction<Postgres>, Error> = db.pool.begin().await;
+		if tx.is_err() {
+			return Some(BusinessError::CANNOT_CREATE_SQL_TRANSACTION);
+		}
+		let mut tx = tx.unwrap();
+		let mut i = 0;
+
+		// Iterate over klines, insert those that are absent
+		for time in times.iter() {
+			if i == 10_000 {
+				tx.commit().await.unwrap();
+				tx = db.pool.begin().await.unwrap();
+				i = 0;
+
+				Logger::log_str(
+					LogLevel::INFO,
+					"insert_possible_open_times() postgres.rs",
+					format!("Committed possible open times for pair {pair}").as_str()
+				);
+			}
+			i += 1;
+
+			let query = format!(r"
+				INSERT INTO pot_{pair_lower} (time_open)
+				SELECT {time}
+				WHERE NOT EXISTS (
+					SELECT 1 FROM pot_{pair_lower} WHERE time_open = {time}
+				);
+			");
+
+			sqlx::query(query.as_str()).execute(&mut tx).await.unwrap();
+		}
+
+		let res = tx.commit().await;
+		Logger::log_str(
+			LogLevel::INFO,
+			"insert_possible_open_times() postgres.rs",
+			format!("Committed possible open times for pair {pair} (outside loop here)").as_str()
+		);
+
+		if res.is_err() {
+			return Some(BusinessError::SQL_TRANSACTION_ERROR);
+		}
+
+		None
+	}
+
+	pub async fn update_possible_open_times(db: &PostgresDatabase, connector: &impl Connector, pair: &TradingPair) -> Option<BusinessError>{
+		let first_remote = connector.fetch_first_timeframe(pair).await;
+		let last_remote = connector.fetch_last_complete_timeframe(pair).await;
+
+		// let first_local_pot = PostgresAbsenceAnalyser::get_first_timeframe_pot(&db, pair).await;
+		let last_local_pot = PostgresAbsenceAnalyser::get_last_timeframe_pot(&db, pair).await;
+
+		if first_remote.is_none() {
+			Logger::log_str(
+				LogLevel::ERROR,
+				"update_possible_open_times() postgres.rs",
+				"Could not fetch first_remote"
+			);
+
+			return Some(BusinessError::API_CONNECTOR_ERROR);
+		}
+
+		if last_remote.is_none() {
+			Logger::log_str(
+				LogLevel::ERROR,
+				"update_possible_open_times() postgres.rs",
+				"Could not fetch last_remote"
+			);
+
+			return Some(BusinessError::API_CONNECTOR_ERROR);
+		}
+
+		let first_remote = first_remote.unwrap();
+		let last_remote = last_remote.unwrap();
+
+		let start_time = {
+			if last_local_pot.is_none() {
+				first_remote
+			}
+			else {
+				last_local_pot.unwrap()
+			}
+		};
+		let mut curr_time = start_time;
+		let end_time = last_remote;
+
+		let mut times: Vec<u64> = Vec::new(); // TODO add with capacity
+
+		while curr_time <= end_time {
+			times.push(curr_time);
+			curr_time += 60_000;
+		}
+
+		let res = Self::insert_possible_open_times(&db, pair, &times).await;
+
+		if res.is_some() {
+			Logger::log_str(
+				LogLevel::ERROR,
+				"update_possible_open_times() postgres.rs",
+				"Error inserting possible open times"
+			);
+
+			return Some(BusinessError::UNSPECIFIED_ERROR);
+		}
+
+		None
 	}
 }
 

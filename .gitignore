@@ -6,4 +6,4 @@
 /.idea
 *.imp
 
-log_*.txt
+/log
