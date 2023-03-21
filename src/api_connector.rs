@@ -44,7 +44,7 @@ impl TimeframeJumpGenerator {
 
 		Logger::log_str(
 			LogLevel::FINE,
-			"generate_timeframe_jumps()@api_connector.rs",
+			"generate_timeframe_jumps() api_connector.rs",
 			format!("Timeframe jumps vector has an initial capacity of {}", res.capacity()).as_str()
 		);
 
@@ -55,7 +55,7 @@ impl TimeframeJumpGenerator {
 
 		Logger::log_str(
 			LogLevel::FINE,
-			"generate_timeframe_jumps()@api_connector.rs",
+			"generate_timeframe_jumps() api_connector.rs",
 			format!("Timeframe jumps vector has an end size of {}", res.len()).as_str()
 		);
 
@@ -92,7 +92,7 @@ impl Connector for BinanceConnector {
 
 		Logger::log_str(
 			LogLevel::FINE,
-			"fetch_last_complete_timeframe()@api_connector.rs",
+			"fetch_last_complete_timeframe() api_connector.rs",
 			format!("First timeframe is found to be {time}").as_str()
 		);
 
@@ -131,7 +131,7 @@ impl Connector for BinanceConnector {
 
 		Logger::log_str(
 			LogLevel::FINE,
-			"fetch_last_complete_timeframe()@api_connector.rs",
+			"fetch_last_complete_timeframe() api_connector.rs",
 			format!("Last complete timeframe is found to be {min_time}").as_str()
 		);
 
@@ -144,7 +144,7 @@ impl Connector for BinanceConnector {
 		if from % 60_000 != 0 || to % 60_000 != 0 {
 			Logger::log_str(
 				LogLevel::FINE,
-				"fetch_all_in_timeframe()@api_connector.rs",
+				"fetch_all_in_timeframe() api_connector.rs",
 				"Passed unaligned timeframes, returning error"
 			);
 			return Err(BusinessError::UNALIGNED_TIMEFRAME);
@@ -153,7 +153,7 @@ impl Connector for BinanceConnector {
 		if !(from <= to) {
 			Logger::log_str(
 				LogLevel::FINE,
-				"fetch_all_in_timeframe()@api_connector.rs",
+				"fetch_all_in_timeframe() api_connector.rs",
 				"Arguments are switched up, returning error"
 			);
 			return Err(BusinessError::INCORRECT_ARGUMENT_ORDER);
@@ -164,7 +164,7 @@ impl Connector for BinanceConnector {
 		if timeframe_jumps.is_err() {
 			Logger::log_str(
 				LogLevel::FINE,
-				"fetch_all_in_timeframe()@api_connector.rs",
+				"fetch_all_in_timeframe() api_connector.rs",
 				"Timeframe jump generation threw an error, returning error"
 			);
 			return Err(BusinessError::UNSPECIFIED_ERROR);
@@ -177,7 +177,7 @@ impl Connector for BinanceConnector {
 		let thread_count = 10;
 		Logger::log_str(
 			LogLevel::FINE,
-			"fetch_all_in_timeframe()@api_connector.rs",
+			"fetch_all_in_timeframe() api_connector.rs",
 			format!("Thread count is set to {thread_count}").as_str()
 		);
 
@@ -185,7 +185,7 @@ impl Connector for BinanceConnector {
 		let mut queue = VecDeque::with_capacity(timeframe_jumps.len());
 		Logger::log_str(
 			LogLevel::FINE,
-			"fetch_all_in_timeframe()@api_connector.rs",
+			"fetch_all_in_timeframe() api_connector.rs",
 			format!("Created queue with capacity {}", queue.capacity()).as_str()
 		);
 
@@ -195,7 +195,7 @@ impl Connector for BinanceConnector {
 		}
 		Logger::log_str(
 			LogLevel::FINE,
-			"fetch_all_in_timeframe()@api_connector.rs",
+			"fetch_all_in_timeframe() api_connector.rs",
 			format!("Enqueued {} timeframes for requests", queue.len()).as_str()
 		);
 
@@ -204,7 +204,7 @@ impl Connector for BinanceConnector {
 		// Run the requests
 		Logger::log_str(
 			LogLevel::FINE,
-			"fetch_all_in_timeframe()@api_connector.rs",
+			"fetch_all_in_timeframe() api_connector.rs",
 			"Spinning the request threads up"
 		);
 		let bodies = stream::iter(queue).map(|timeframe| {
@@ -217,7 +217,7 @@ impl Connector for BinanceConnector {
 
 					Logger::log_str(
 						LogLevel::FINE,
-						"fetch_all_in_timeframe()@api_connector.rs",
+						"fetch_all_in_timeframe() api_connector.rs",
 						format!("Sleeping because of cooldown, until={until}").as_str()
 					);
 
@@ -232,7 +232,7 @@ impl Connector for BinanceConnector {
 				if res.is_err() {
 					Logger::log_str(
 						LogLevel::FINE,
-						"fetch_all_in_timeframe()@api_connector.rs",
+						"fetch_all_in_timeframe() api_connector.rs",
 						format!("Bad request to {url}").as_str()
 					);
 					return None;
@@ -246,12 +246,12 @@ impl Connector for BinanceConnector {
 				if json.is_err() {
 					Logger::log_str(
 						LogLevel::FINE,
-						"fetch_all_in_timeframe()@api_connector.rs",
+						"fetch_all_in_timeframe() api_connector.rs",
 						"Could not deserialize to Vec<KlinePreProcess>"
 					);
 					Logger::log_str(
 						LogLevel::FINE,
-						"fetch_all_in_timeframe()@api_connector.rs",
+						"fetch_all_in_timeframe() api_connector.rs",
 						format!("Status code {status_code}").as_str()
 					);
 
@@ -269,7 +269,7 @@ impl Connector for BinanceConnector {
 							let retry_after = headers.get("Retry-After");
 							Logger::log_str(
 								LogLevel::FINE,
-								"fetch_all_in_timeframe()@api_connector.rs",
+								"fetch_all_in_timeframe() api_connector.rs",
 								format!("Got teapotted (418)").as_str()
 							);
 							if retry_after.is_some() {
@@ -278,7 +278,7 @@ impl Connector for BinanceConnector {
 
 								Logger::log_str(
 									LogLevel::FINE,
-									"fetch_all_in_timeframe()@api_connector.rs",
+									"fetch_all_in_timeframe() api_connector.rs",
 									format!("retry_after={retry_after}").as_str()
 								);
 							}
@@ -294,7 +294,7 @@ impl Connector for BinanceConnector {
 
 				Logger::log_str(
 					LogLevel::FINE,
-					"fetch_all_in_timeframe()@api_connector.rs",
+					"fetch_all_in_timeframe() api_connector.rs",
 					format!("Fetched timestamp={timeframe} successfully, size is {} after filtering", json.len()).as_str()
 				);
 
@@ -305,7 +305,7 @@ impl Connector for BinanceConnector {
 		let klines: Vec<Kline> = Vec::with_capacity(1000 * timeframe_jumps_len);
 		Logger::log_str(
 			LogLevel::FINE,
-			"fetch_all_in_timeframe()@api_connector.rs",
+			"fetch_all_in_timeframe() api_connector.rs",
 			format!("Klines vector initial capacity is {}", klines.capacity()).as_str()
 		);
 		let klines_mutex = Mutex::new(klines);
@@ -320,7 +320,7 @@ impl Connector for BinanceConnector {
 				None => {
 					Logger::log_str(
 						LogLevel::FINE,
-						"fetch_all_in_timeframe()@api_connector.rs",
+						"fetch_all_in_timeframe() api_connector.rs",
 						"Encountered empty response in bodies"
 					);
 					eprintln!("Got an error")
@@ -330,7 +330,7 @@ impl Connector for BinanceConnector {
 
 		Logger::log_str(
 			LogLevel::FINE,
-			"fetch_all_in_timeframe()@api_connector.rs",
+			"fetch_all_in_timeframe() api_connector.rs",
 			format!("End of function, klines vector has a size of {}", klines_mutex.lock().unwrap().len()).as_str()
 		);
 

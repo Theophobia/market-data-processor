@@ -40,7 +40,7 @@ impl CooldownHandler {
 
 			Logger::log_str(
 				LogLevel::FINE,
-				"set_cooldown_to()@cooldown_handler.rs",
+				"set_cooldown_to() cooldown_handler.rs",
 				format!("Set cooldown until {} (note: already had cooldown set, chose the max)", cdh.until.unwrap()).as_str()
 			);
 		} else {
@@ -48,7 +48,7 @@ impl CooldownHandler {
 
 			Logger::log_str(
 				LogLevel::FINE,
-				"set_cooldown_to()@cooldown_handler.rs",
+				"set_cooldown_to() cooldown_handler.rs",
 				format!("Set cooldown until {}", cdh.until.unwrap()).as_str()
 			);
 		}

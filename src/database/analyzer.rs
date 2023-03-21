@@ -42,7 +42,7 @@ impl PostgresAbsenceAnalyser {
 	pub async fn get_first_timeframe(db: &PostgresDatabase, trading_pair: TradingPair) -> Option<u64> {
 		Logger::log_str(
 			LogLevel::FINE,
-			"get_first_timeframe()@database/analyzer.rs",
+			"get_first_timeframe() database/analyzer.rs",
 			format!("Entering function with trading_pair={trading_pair}").as_str()
 		);
 
@@ -56,7 +56,7 @@ impl PostgresAbsenceAnalyser {
 		if res.is_err() {
 			Logger::log_str(
 				LogLevel::INFO,
-				"get_first_timeframe()@database/analyzer.rs",
+				"get_first_timeframe() database/analyzer.rs",
 				"Query \"SELECT MIN(time_open)...\" returned error, function is returning None as a result"
 			);
 			return None;
@@ -66,7 +66,7 @@ impl PostgresAbsenceAnalyser {
 		if res.is_none() {
 			Logger::log_str(
 				LogLevel::FINE,
-				"get_last_timeframe()@database/analyzer.rs",
+				"get_last_timeframe() database/analyzer.rs",
 				format!("Query \"SELECT MIN(time_open)...\" returned Option as None (no MIN time_open exists, table is empty), function is returning None as a result").as_str()
 			);
 			return None;
@@ -77,7 +77,7 @@ impl PostgresAbsenceAnalyser {
 		if res.is_err() {
 			Logger::log_str(
 				LogLevel::FINE,
-				"get_last_timeframe()@database/analyzer.rs",
+				"get_last_timeframe() database/analyzer.rs",
 				format!("Could not get first element of row for some reason? Function is returning None as a result").as_str()
 			);
 			return None;
@@ -87,7 +87,7 @@ impl PostgresAbsenceAnalyser {
 
 		Logger::log_str(
 			LogLevel::FINE,
-			"get_last_timeframe()@database/analyzer.rs",
+			"get_last_timeframe() database/analyzer.rs",
 			format!("Found first timeframe to be {time}, returning that as a result").as_str()
 		);
 		Some(time)
@@ -96,7 +96,7 @@ impl PostgresAbsenceAnalyser {
 	pub async fn get_last_timeframe(db: &PostgresDatabase, trading_pair: TradingPair) -> Option<u64> {
 		Logger::log_str(
 			LogLevel::FINE,
-			"get_last_timeframe()@database/analyzer.rs",
+			"get_last_timeframe() database/analyzer.rs",
 			format!("Entering function with trading_pair={trading_pair}").as_str()
 		);
 
@@ -110,7 +110,7 @@ impl PostgresAbsenceAnalyser {
 		if res.is_err() {
 			Logger::log_str(
 				LogLevel::INFO,
-				"get_last_timeframe()@database/analyzer.rs",
+				"get_last_timeframe() database/analyzer.rs",
 				"Query \"SELECT MAX(time_open)...\" returned error, function is returning None as a result"
 			);
 			return None;
@@ -120,7 +120,7 @@ impl PostgresAbsenceAnalyser {
 		if res.is_none() {
 			Logger::log_str(
 				LogLevel::FINE,
-				"get_last_timeframe()@database/analyzer.rs",
+				"get_last_timeframe() database/analyzer.rs",
 				format!("Query \"SELECT MAX(time_open)...\" returned Option as None (no MAX time_open exists, table is empty), function is returning None as a result").as_str()
 			);
 			return None;
@@ -131,7 +131,7 @@ impl PostgresAbsenceAnalyser {
 		if res.is_err() {
 			Logger::log_str(
 				LogLevel::FINE,
-				"get_last_timeframe()@database/analyzer.rs",
+				"get_last_timeframe() database/analyzer.rs",
 				format!("Could not get first element of row for some reason? Function is returning None as a result").as_str()
 			);
 			return None;
@@ -141,7 +141,7 @@ impl PostgresAbsenceAnalyser {
 
 		Logger::log_str(
 			LogLevel::FINE,
-			"get_last_timeframe()@database/analyzer.rs",
+			"get_last_timeframe() database/analyzer.rs",
 			format!("Found last timeframe to be {time}, returning that as a result").as_str()
 		);
 		Some(time)

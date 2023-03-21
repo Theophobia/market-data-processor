@@ -14,6 +14,38 @@ use crate::database::db::Database;
 use crate::database::postgres::{PostgresDatabase, PostgresExecutor, PostgresSetup};
 use crate::kline::Kline;
 use crate::logger::logger::{Logger, LogLevel};
+use crate::trading_pair::TradingPair;
+
+async fn fetch_and_insert(db: &PostgresDatabase, pair: TradingPair, first: u64, last: u64) {
+	if first == last {
+		return;
+	}
+
+	let klines = BinanceConnector::fetch_all_in_timeframe(first, last, pair).await;
+	if klines.is_err() {
+		eprintln!("Error fetching {pair}");
+		return;
+	}
+
+	let klines: Vec<Kline> = klines.unwrap();
+
+	Logger::log_str(
+		LogLevel::INFO,
+		"main.rs",
+		format!("Fetched klines, inserting now").as_str(),
+	);
+
+	let res = PostgresExecutor::insert_klines(&db, pair, &klines).await;
+
+	Logger::log_str(
+		LogLevel::INFO,
+		"main.rs",
+		format!("Finished inserting klines").as_str(),
+	);
+
+	// println!("Klines: {klines:?}");
+	println!("Klines length: {}", klines.len());
+}
 
 #[tokio::main]
 async fn main() {
@@ -21,7 +53,7 @@ async fn main() {
 
 	dotenv::dotenv().unwrap();
 
-	let pairs = vec![LDOUSDT];
+	let pairs = vec![BTCUSDT];
 	let db = PostgresDatabase::new().await;
 	PostgresSetup::setup(&db, &pairs).await;
 	let missing = PostgresAbsenceAnalyser::analyze(&db, &pairs).await;
@@ -33,8 +65,10 @@ async fn main() {
 		let first_local = PostgresAbsenceAnalyser::get_first_timeframe(&db, pair).await;
 		let last_local = PostgresAbsenceAnalyser::get_last_timeframe(&db, pair).await;
 
-		println!("{first_local:?}");
-		println!("{last_local:?}");
+		println!("first_remote = {first_remote:?}");
+		println!("last_remote = {last_remote:?}");
+		println!("first_local = {first_local:?}");
+		println!("last_local = {last_local:?}");
 
 		if first_local.is_none() && last_local.is_none() {
 			// Full download from remote
@@ -43,38 +77,22 @@ async fn main() {
 				let first = first_remote.unwrap();
 				let last = last_remote.unwrap();
 
-				// println!("{}", first);
-				// println!("{}", last);
-
-				let klines = BinanceConnector::fetch_all_in_timeframe(first, last, pair).await;
-				if klines.is_err() {
-					eprintln!("Error fetching {pair}");
-					continue;
-				}
-
-				let klines: Vec<Kline> = klines.unwrap();
-
-				Logger::log_str(
-					LogLevel::INFO,
-					"main.rs",
-					format!("Fetched klines, inserting now").as_str()
-				);
-
-				let res = PostgresExecutor::insert_klines(&db, pair, &klines).await;
-
-				Logger::log_str(
-					LogLevel::INFO,
-					"main.rs",
-					format!("Finished inserting klines").as_str()
-				);
-
-				// println!("Klines: {klines:?}");
-				println!("Klines length: {}", klines.len());
-			}
-			else {
+				fetch_and_insert(&db, pair, first, last).await;
+			} else {
 				exit(-123);
 			}
-		}
+		} else if first_local.is_some() && last_local.is_some() {
+			// Fetch from first remote to first local
+			// Fetch from last local to last remote
 
+			let first_remote = first_remote.unwrap();
+			let last_remote = last_remote.unwrap();
+
+			let first_local = first_local.unwrap();
+			let last_local = last_local.unwrap();
+
+			fetch_and_insert(&db, pair, first_remote, first_local).await;
+			fetch_and_insert(&db, pair, last_local, last_remote).await;
+		}
 	}
 }

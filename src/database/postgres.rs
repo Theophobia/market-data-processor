@@ -5,6 +5,7 @@ use sqlx::postgres::{PgQueryResult, PgRow};
 use crate::database::db::Database;
 use crate::error::BusinessError;
 use crate::kline::Kline;
+use crate::logger::logger::{Logger, LogLevel};
 use crate::trading_pair::TradingPair;
 
 pub struct PostgresDatabase {
@@ -151,21 +152,28 @@ impl PostgresExecutor {
 				tx.commit().await.unwrap();
 				tx = db.pool.begin().await.unwrap();
 				i = 0;
+
+				Logger::log_str(
+					LogLevel::INFO,
+					"insert_klines() postgres.rs",
+					format!("Committed items").as_str()
+				);
+
 			}
 			i += 1;
 
 			// let query = format!(r"
 			// 	INSERT INTO klines_{pair_lower} (time_open, open, high, low, close, volume, num_trades)
-			// 	SELECT {}, {}, {}, {}, {}, {}, {}
-			// 	WHERE NOT EXISTS (
-			// 		SELECT 1 FROM klines_{pair_lower} WHERE time_open = {}
-			// 	);
-			// ", kline.time_open, kline.open, kline.high, kline.low, kline.close, kline.volume, kline.num_trades, kline.time_open);
+			// 	VALUES {}, {}, {}, {}, {}, {}, {};
+			// ", kline.time_open, kline.open, kline.high, kline.low, kline.close, kline.volume, kline.num_trades);
 
 			let query = format!(r"
 				INSERT INTO klines_{pair_lower} (time_open, open, high, low, close, volume, num_trades)
-				VALUES ({}, {}, {}, {}, {}, {}, {});
-			", kline.time_open, kline.open, kline.high, kline.low, kline.close, kline.volume, kline.num_trades);
+				SELECT {}, {}, {}, {}, {}, {}, {}
+				WHERE NOT EXISTS (
+					SELECT 1 FROM klines_{pair_lower} WHERE time_open = {}
+				);
+			", kline.time_open, kline.open, kline.high, kline.low, kline.close, kline.volume, kline.num_trades, kline.time_open);
 
 			sqlx::query(query.as_str()).execute(&mut tx).await.unwrap();
 		}
