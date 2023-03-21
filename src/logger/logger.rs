@@ -1,11 +1,12 @@
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::io::Write;
-use std::sync::{Mutex, MutexGuard};
+use std::sync::Mutex;
 use chrono::Utc;
 use once_cell::sync::Lazy;
 
 static LOGGER: Lazy<Mutex<Logger>> = Lazy::new(|| Mutex::new(Logger::new()));
+const IS_ALSO_LOGGING_TO_CONSOLE: bool = true;
 
 pub enum LogLevel {
 	FINE,
@@ -39,6 +40,10 @@ impl Logger {
 
 		let full_message = format!("[{time}] [{log_level}] [{channel}] : {message}\n");
 		let res = LOGGER.lock().unwrap().output_file.write_all(full_message.as_bytes());
+
+		if IS_ALSO_LOGGING_TO_CONSOLE {
+			print!("{full_message}");
+		}
 
 		res.unwrap();
 	}

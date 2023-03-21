@@ -39,7 +39,7 @@ impl PostgresAbsenceAnalyser {
 		If this returns None, should fetch first timestamp from Binance API
 		Or some SQL error occurred
 	 */
-	pub async fn get_first_timeframe(db: &PostgresDatabase, trading_pair: TradingPair) -> Option<u64> {
+	pub async fn get_first_timeframe(db: &PostgresDatabase, trading_pair: &TradingPair) -> Option<u64> {
 		Logger::log_str(
 			LogLevel::FINE,
 			"get_first_timeframe() database/analyzer.rs",
@@ -93,7 +93,7 @@ impl PostgresAbsenceAnalyser {
 		Some(time)
 	}
 
-	pub async fn get_last_timeframe(db: &PostgresDatabase, trading_pair: TradingPair) -> Option<u64> {
+	pub async fn get_last_timeframe(db: &PostgresDatabase, trading_pair: &TradingPair) -> Option<u64> {
 		Logger::log_str(
 			LogLevel::FINE,
 			"get_last_timeframe() database/analyzer.rs",
@@ -146,7 +146,6 @@ impl PostgresAbsenceAnalyser {
 		);
 		Some(time)
 	}
-
 
 	pub fn curr_time_millis() -> u64 {
 		SystemTime::now()

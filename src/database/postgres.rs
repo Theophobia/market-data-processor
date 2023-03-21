@@ -2,6 +2,8 @@ use async_trait::async_trait;
 use std::env;
 use sqlx::{Error, PgPool, Pool, Postgres, Transaction};
 use sqlx::postgres::{PgQueryResult, PgRow};
+use crate::api_connector::Connector;
+use crate::database::analyzer::PostgresAbsenceAnalyser;
 use crate::database::db::Database;
 use crate::error::BusinessError;
 use crate::kline::Kline;
@@ -135,7 +137,7 @@ impl PostgresSetup {
 pub struct PostgresExecutor {}
 
 impl PostgresExecutor {
-	pub async fn insert_klines(db: &PostgresDatabase, trading_pair: TradingPair, klines: &Vec<Kline>) -> Option<BusinessError> {
+	pub async fn insert_klines(db: &PostgresDatabase, trading_pair: &TradingPair, klines: &Vec<Kline>) -> Option<BusinessError> {
 		let pair_lower = trading_pair.to_string().to_lowercase();
 
 		// Try to get a transaction from pool
@@ -186,4 +188,89 @@ impl PostgresExecutor {
 
 		None
 	}
+
+	pub async fn fetch_and_insert(db: &PostgresDatabase, connector: &impl Connector, pair: &TradingPair, first: u64, last: u64) {
+		if first == last {
+			Logger::log_str(
+				LogLevel::INFO,
+				"fetch_and_insert() postgres.rs",
+				format!("First and last are equal, no klines to be fetched").as_str(),
+			);
+			return;
+		}
+
+		Logger::log_str(
+			LogLevel::INFO,
+			"fetch_and_insert() postgres.rs",
+			format!("first={first}, last={last}").as_str(),
+		);
+
+		let klines = connector.fetch_all_in_timeframe(first, last, pair).await;
+		if klines.is_err() {
+			eprintln!("Error fetching {pair}");
+			return;
+		}
+
+		let klines: Vec<Kline> = klines.unwrap();
+
+		Logger::log_str(
+			LogLevel::INFO,
+			"fetch_and_insert() postgres.rs",
+			format!("Fetched klines, inserting now").as_str(),
+		);
+
+		let _ = PostgresExecutor::insert_klines(&db, pair, &klines).await;
+
+		Logger::log_str(
+			LogLevel::INFO,
+			"fetch_and_insert() postgres.rs",
+			format!("Finished inserting klines").as_str(),
+		);
+
+		// println!("Klines: {klines:?}");
+		// println!("Klines length: {}", klines.len());
+	}
+
+	pub async fn fetch_insert_leading_trailing(db: &PostgresDatabase, connector: &impl Connector, pair: &TradingPair) {
+		let first_remote = connector.fetch_first_timeframe(pair).await;
+		let last_remote = connector.fetch_last_complete_timeframe(pair).await;
+
+		let first_local = PostgresAbsenceAnalyser::get_first_timeframe(&db, pair).await;
+		let last_local = PostgresAbsenceAnalyser::get_last_timeframe(&db, pair).await;
+
+		// println!("first_remote = {first_remote:?}");
+		// println!("last_remote = {last_remote:?}");
+		// println!("first_local = {first_local:?}");
+		// println!("last_local = {last_local:?}");
+
+		if first_local.is_none() && last_local.is_none() {
+			// Full download from remote
+
+			if first_remote.is_some() && last_remote.is_some() {
+				let first = first_remote.unwrap();
+				let last = last_remote.unwrap();
+
+				Self::fetch_and_insert(&db, connector, pair, first, last).await;
+			} else {
+				Logger::log_str(
+					LogLevel::ERROR,
+					"fetch_insert_leading_trailing() postgres.rs",
+					"Logical error #1"
+				);
+			}
+		} else if first_local.is_some() && last_local.is_some() {
+			// Fetch from first remote to first local
+			// Fetch from last local to last remote
+
+			let first_remote = first_remote.unwrap();
+			let last_remote = last_remote.unwrap();
+
+			let first_local = first_local.unwrap();
+			let last_local = last_local.unwrap();
+
+			Self::fetch_and_insert(&db, connector, pair, first_remote, first_local).await;
+			Self::fetch_and_insert(&db, connector, pair, last_local, last_remote).await;
+		}
+	}
 }
+

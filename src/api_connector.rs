@@ -1,20 +1,15 @@
 use async_trait::async_trait;
 
-use std::collections::{HashMap, VecDeque};
-use std::ops::Deref;
-use std::rc::Rc;
+use std::collections::VecDeque;
 use std::str::FromStr;
 use std::sync::Mutex;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 use chrono::Utc;
-use sqlx::Row;
 use futures::{stream, StreamExt};
 use reqwest::{Client, Error, Response, StatusCode};
 use tokio;
 use tokio::time::sleep;
 use crate::cooldown_handler::CooldownHandler;
-use crate::database::db::Database;
-use crate::database::postgres::PostgresDatabase;
 use crate::error::BusinessError;
 use crate::trading_pair::TradingPair;
 use crate::kline::*;
@@ -22,14 +17,15 @@ use crate::logger::logger::{Logger, LogLevel};
 
 #[async_trait]
 pub trait Connector {
-	async fn fetch_first_timeframe(trading_pair: TradingPair) -> Option<u64>;
-	async fn fetch_last_complete_timeframe(trading_pair: TradingPair) -> Option<u64>;
-	async fn fetch_all_in_timeframe(from: u64, to: u64, trading_pair: TradingPair) -> Result<Vec<Kline>, BusinessError>;
+	async fn fetch_first_timeframe(&self, trading_pair: &TradingPair) -> Option<u64>;
+	async fn fetch_last_complete_timeframe(&self, trading_pair: &TradingPair) -> Option<u64>;
+	async fn fetch_all_in_timeframe(&self, from: u64, to: u64, trading_pair: &TradingPair) -> Result<Vec<Kline>, BusinessError>;
 }
 
 pub struct TimeframeJumpGenerator {}
 
 impl TimeframeJumpGenerator {
+
 	pub async fn generate_timeframe_jumps(from: u64, to: u64) -> Result<Vec<u64>, BusinessError> {
 		if from % 60_000 != 0 || to % 60_000 != 0 {
 			return Err(BusinessError::UNALIGNED_TIMEFRAME);
@@ -65,9 +61,15 @@ impl TimeframeJumpGenerator {
 
 pub struct BinanceConnector {}
 
+impl BinanceConnector {
+	pub fn new() -> Self {
+		Self {}
+	}
+}
+
 #[async_trait]
 impl Connector for BinanceConnector {
-	async fn fetch_first_timeframe(trading_pair: TradingPair) -> Option<u64> {
+	async fn fetch_first_timeframe(&self, trading_pair: &TradingPair) -> Option<u64> {
 		let url = format!(r"
 			https://data.binance.com/api/v3/klines?symbol={trading_pair}&interval=1m&startTime=0&limit=1
 		");
@@ -99,7 +101,7 @@ impl Connector for BinanceConnector {
 		Some(time)
 	}
 
-	async fn fetch_last_complete_timeframe(trading_pair: TradingPair) -> Option<u64> {
+	async fn fetch_last_complete_timeframe(&self, trading_pair: &TradingPair) -> Option<u64> {
 		let url = format!("https://data.binance.com/api/v3/klines?symbol={trading_pair}&interval=1m&limit=2");
 
 		let res = reqwest::get(&url).await;
@@ -138,7 +140,7 @@ impl Connector for BinanceConnector {
 		Some(min_time)
 	}
 
-	async fn fetch_all_in_timeframe(from: u64, to: u64, trading_pair: TradingPair) -> Result<Vec<Kline>, BusinessError> {
+	async fn fetch_all_in_timeframe(&self, from: u64, to: u64, trading_pair: &TradingPair) -> Result<Vec<Kline>, BusinessError> {
 
 		// Checks for wrong arguments
 		if from % 60_000 != 0 || to % 60_000 != 0 {
