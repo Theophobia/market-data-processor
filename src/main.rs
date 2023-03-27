@@ -5,6 +5,8 @@ pub mod error;
 pub mod api_connector;
 pub mod logger;
 pub mod cooldown_handler;
+pub mod routine;
+pub mod neural;
 
 use crate::api_connector::BinanceConnector;
 use crate::database::analyzer::PostgresAbsenceAnalyser;
@@ -17,7 +19,7 @@ async fn main() {
 
 	dotenv::dotenv().unwrap();
 
-	let pairs = vec![BTCUSDT, LDOUSDT];
+	let pairs = vec![BTCUSDT, LDOUSDT, ETHUSDT];
 	let db = PostgresDatabase::new().await;
 	let api_con = BinanceConnector::new();
 

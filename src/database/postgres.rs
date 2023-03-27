@@ -1,5 +1,8 @@
+use std::collections::HashMap;
 use async_trait::async_trait;
 use std::env;
+use std::time::Instant;
+use async_recursion::async_recursion;
 use sqlx::{Error, PgPool, Pool, Postgres, Transaction};
 use sqlx::postgres::{PgQueryResult, PgRow};
 use crate::api_connector::Connector;
@@ -26,7 +29,7 @@ impl Database<PgQueryResult, PgRow> for PostgresDatabase {
 		}
 	}
 
-	async fn execute(&self, query: &str) -> Result<PgQueryResult, sqlx::Error> {
+	async fn execute(&self, query: &str) -> Result<PgQueryResult, Error> {
 		sqlx::query(query).execute(&self.pool).await
 	}
 
@@ -44,7 +47,7 @@ impl Database<PgQueryResult, PgRow> for PostgresDatabase {
 pub struct PostgresSetup {}
 
 impl PostgresSetup {
-	pub async fn setup(db: &PostgresDatabase, pairs: &Vec<TradingPair>) -> Option<sqlx::Error> {
+	pub async fn setup(db: &PostgresDatabase, pairs: &Vec<TradingPair>) -> Option<Error> {
 		for pair in pairs {
 			let res = Self::setup_tp(db, pair).await;
 			if res.is_some() {
@@ -55,7 +58,7 @@ impl PostgresSetup {
 		None
 	}
 
-	async fn setup_tp(db: &PostgresDatabase, pairs: &TradingPair) -> Option<sqlx::Error> {
+	async fn setup_tp(db: &PostgresDatabase, pairs: &TradingPair) -> Option<Error> {
 		let pair_lower = pairs.to_string().to_lowercase();
 
 		// Try to get a transaction from pool
@@ -137,54 +140,59 @@ impl PostgresSetup {
 pub struct PostgresExecutor {}
 
 impl PostgresExecutor {
+	#[async_recursion]
 	async fn insert_klines(db: &PostgresDatabase, pair: &TradingPair, klines: &Vec<Kline>) -> Option<BusinessError> {
-		let pair_lower = pair.to_string().to_lowercase();
+		const CHUNK_SIZE: usize = 500_000;
+		if klines.len() > CHUNK_SIZE {
+			let chunks = klines.chunks(CHUNK_SIZE);
 
-		// Try to get a transaction from pool
-		let tx: Result<Transaction<Postgres>, Error> = db.pool.begin().await;
-		if tx.is_err() {
-			return Some(BusinessError::CANNOT_CREATE_SQL_TRANSACTION);
-		}
-		let mut tx = tx.unwrap();
-		let mut i = 0;
+			Logger::log_str(
+				LogLevel::INFO,
+				"insert_klines() postgres.rs",
+				format!("Klines has a size {}, splitting to chunks", klines.len()).as_str()
+			);
 
-		// Iterate over klines, insert those that are absent
-		for kline in klines {
-			if i == 10_000 {
-				tx.commit().await.unwrap();
-				tx = db.pool.begin().await.unwrap();
-				i = 0;
-
-				Logger::log_str(
-					LogLevel::INFO,
-					"insert_klines() postgres.rs",
-					format!("Committed klines").as_str()
-				);
-
+			for chunk in chunks {
+				let vec = chunk.to_vec();
+				Self::insert_klines(db, pair, &vec).await;
 			}
-			i += 1;
 
-			// let query = format!(r"
-			// 	INSERT INTO klines_{pair_lower} (time_open, open, high, low, close, volume, num_trades)
-			// 	VALUES {}, {}, {}, {}, {}, {}, {};
-			// ", kline.time_open, kline.open, kline.high, kline.low, kline.close, kline.volume, kline.num_trades);
-
-			let query = format!(r"
-				INSERT INTO klines_{pair_lower} (time_open, open, high, low, close, volume, num_trades)
-				SELECT {}, {}, {}, {}, {}, {}, {}
-				WHERE NOT EXISTS (
-					SELECT 1 FROM klines_{pair_lower} WHERE time_open = {}
-				);
-			", kline.time_open, kline.open, kline.high, kline.low, kline.close, kline.volume, kline.num_trades, kline.time_open);
-
-			sqlx::query(query.as_str()).execute(&mut tx).await.unwrap();
+			return None;
 		}
 
-		let res = tx.commit().await;
+		let pair_lower = pair.to_string().to_lowercase();
+		let start = Instant::now();
 
-		if res.is_err() {
-			return Some(BusinessError::SQL_TRANSACTION_ERROR);
+		let mut map = HashMap::with_capacity(klines.len());
+		for kline in klines {
+			map.insert(kline.time_open, kline);
 		}
+
+		let mut query = String::with_capacity(map.len() * 56); // 55.54 was magic ratio found in testing
+
+		query.push_str(format!("INSERT INTO klines_{pair_lower} (time_open, open, high, low, close, volume, num_trades) VALUES ").as_str());
+		for (_, v) in map.iter() {
+			let time_open = v.time_open;
+			let open = v.open;
+			let high = v.high;
+			let low = v.low;
+			let close = v.close;
+			let volume = v.volume;
+			let num_trades = v.num_trades;
+
+			query.push_str(format!("({time_open}, {open}, {high}, {low}, {close}, {volume}, {num_trades}),").as_str());
+		}
+		query.pop().unwrap();
+		query.push_str(" ON CONFLICT DO NOTHING;");
+
+		sqlx::query(query.as_str()).execute(&db.pool).await.unwrap(); // gives error Io(Kind(ConnectionAborted))
+
+		let end = Instant::now();
+		Logger::log_str(
+			LogLevel::INFO,
+			"insert_klines() postgres.rs",
+			format!("Committed {} klines for pair {pair} in {:?}", klines.len(), end - start).as_str()
+		);
 
 		None
 	}
@@ -273,53 +281,46 @@ impl PostgresExecutor {
 		}
 	}
 
+	#[async_recursion]
 	pub async fn insert_possible_open_times(db: &PostgresDatabase, pair: &TradingPair, times: &Vec<u64>) -> Option<BusinessError> {
-		let pair_lower = pair.to_string().to_lowercase();
 
-		// Try to get a transaction from pool
-		let tx: Result<Transaction<Postgres>, Error> = db.pool.begin().await;
-		if tx.is_err() {
-			return Some(BusinessError::CANNOT_CREATE_SQL_TRANSACTION);
-		}
-		let mut tx = tx.unwrap();
-		let mut i = 0;
+		const CHUNK_SIZE: usize = 500_000;
+		if times.len() > CHUNK_SIZE {
+			let chunks = times.chunks(CHUNK_SIZE);
 
-		// Iterate over klines, insert those that are absent
-		for time in times.iter() {
-			if i == 10_000 {
-				tx.commit().await.unwrap();
-				tx = db.pool.begin().await.unwrap();
-				i = 0;
+			Logger::log_str(
+				LogLevel::INFO,
+				"insert_possible_open_times() postgres.rs",
+				format!("Times has a size {}, splitting to chunks", times.len()).as_str()
+			);
 
-				Logger::log_str(
-					LogLevel::INFO,
-					"insert_possible_open_times() postgres.rs",
-					format!("Committed possible open times for pair {pair}").as_str()
-				);
+			for chunk in chunks {
+				let vec = chunk.to_vec();
+				Self::insert_possible_open_times(db, pair, &vec).await;
 			}
-			i += 1;
 
-			let query = format!(r"
-				INSERT INTO pot_{pair_lower} (time_open)
-				SELECT {time}
-				WHERE NOT EXISTS (
-					SELECT 1 FROM pot_{pair_lower} WHERE time_open = {time}
-				);
-			");
-
-			sqlx::query(query.as_str()).execute(&mut tx).await.unwrap();
+			return None;
 		}
 
-		let res = tx.commit().await;
+		let pair_lower = pair.to_string().to_lowercase();
+		let start = Instant::now();
+		let mut query = String::with_capacity(times.len());
+
+		query.push_str(format!("INSERT INTO pot_{pair_lower} (time_open) VALUES ").as_str());
+		for time in times.iter() {
+			query.push_str(format!("({time}),").as_str());
+		}
+		query.pop().unwrap();
+		query.push_str(" ON CONFLICT DO NOTHING;");
+
+		sqlx::query(query.as_str()).execute(&db.pool).await.unwrap();
+
+		let end = Instant::now();
 		Logger::log_str(
 			LogLevel::INFO,
 			"insert_possible_open_times() postgres.rs",
-			format!("Committed possible open times for pair {pair} (outside loop here)").as_str()
+			format!("Committed {} possible open times for pair {pair} in {:?}", times.len(), end - start).as_str()
 		);
-
-		if res.is_err() {
-			return Some(BusinessError::SQL_TRANSACTION_ERROR);
-		}
 
 		None
 	}
