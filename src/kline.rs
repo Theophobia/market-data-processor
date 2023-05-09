@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+use tch::nn::VarStore;
+use tch::{Kind, Tensor};
 
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,5 +50,17 @@ pub struct Kline {
 impl Kline {
 	pub fn new(time_open: u64, open: f32, high: f32, low: f32, close: f32, volume: f32, num_trades: u64) -> Self {
 		Self { time_open, open, high, low, close, volume, num_trades }
+	}
+
+	pub fn as_ohlcv_tensor(&self, vs: &VarStore, kind: Kind) -> Tensor {
+		Tensor::of_slice(&[
+			self.open.clone(),
+			self.high.clone(),
+			self.low.clone(),
+			self.close.clone(),
+			self.volume.clone()
+		])
+			.to_kind(kind)
+			.to_device(vs.device())
 	}
 }

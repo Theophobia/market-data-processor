@@ -1,0 +1,18 @@
+let layer_counts = [750, 1500, 1500, 1500, 1500, 1500, 1500, 3];
+OFFSET 129600 - {x} * 75;
+for i in 0..1728 {
+const INITIAL_LR: f64 = 1e-1;
+
+epoch:   45 avg: 221.80827 min:  0.14499 max: 4387.84277
+epoch:   46 avg: 233.51568 min:  0.13104 max: 4367.91992
+epoch:   47 avg: 239.56326 min:  0.11232 max: 3527.59180
+epoch:   48 avg: 214.67278 min:  0.06056 max: 4046.99756
+epoch:   49 avg: 227.18463 min:  0.00615 max: 4861.35498
+epoch:   50 avg: 210.55782 min:  0.09843 max: 2662.34351
+
+epoch:   95 avg: 129.37997 min:  0.01612 max: 1906.28760
+epoch:   96 avg: 134.46299 min:  0.02235 max: 2634.66309
+epoch:   97 avg: 127.34023 min:  0.11214 max: 2820.53320
+epoch:   98 avg: 138.80356 min:  0.07126 max: 4032.61182
+epoch:   99 avg: 126.05457 min:  0.02726 max: 2230.58008
+epoch:  100 avg: 124.90627 min:  0.14941 max: 2077.12842
