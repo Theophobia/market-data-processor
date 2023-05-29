@@ -40,7 +40,7 @@ impl Indicators {
 	}
 }
 
-fn get_indicators(klines: &[Kline]) -> Indicators {
+fn get_indicators(klines: &[Kline], min_price: f32, max_price: f32) -> Indicators {
 	assert_ne!(klines.len(), 0);
 
 	let mut min: f32 = klines.get(0).unwrap().low;
@@ -62,7 +62,7 @@ fn get_indicators(klines: &[Kline]) -> Indicators {
 		avg = avg + (kline.open - avg) / (n as f32);
 	}
 
-	Indicators {min, max, avg}
+	Indicators {min: min / min_price, max: max / max_price, avg}
 }
 
 #[allow(dead_code)]
@@ -239,6 +239,28 @@ fn get_network_3(vs: &VarStore) -> Sequential {
 		));
 }
 
+#[allow(dead_code)]
+fn get_network(vs: &VarStore, layer_counts: &[i64], act_fn: fn(&Tensor) -> Tensor) -> SequentialT {
+	// 150 minutes, 5 data points for each timeframe
+	// First layer is 150 * 5 = 750
+	// Last layer is 3, one for each indicator: MIN, MAX, AVG
+
+	let mut net = nn::seq_t();
+
+	for i in 1..layer_counts.len() {
+		if i != 1 {
+			net = net.add_fn(act_fn);
+		}
+		net = net.add(nn::linear(
+			vs.root(),
+			layer_counts[i - 1],
+			layer_counts[i],
+			Default::default(),
+		));
+	}
+
+	net
+}
 
 #[allow(dead_code)]
 fn get_network_lstm_1(vs: &VarStore) -> LSTM {
@@ -286,53 +308,6 @@ fn get_max_f64(vec: &Vec<f64>) -> f64 {
 	return max;
 }
 
-
-
-async fn get_training_data_bare(db: &PostgresDatabase, offset: u32) -> Vec<(Vec<Kline>, Indicators)> {
-	let mut training_data: Vec<(Vec<Kline>, Indicators)> = Vec::new();
-
-	let query_string_fn = |x: u32| format!("
-		SELECT *
-		FROM klines_ethusdt
-		ORDER BY time_open DESC
-		LIMIT 180
-		OFFSET 129600 - {x} * {offset};
-	");
-
-	// 90 days * 24 * 60 / 75 = 1728
-	for i in 0..1728 {
-		let x: Vec<Kline> = sqlx::query(query_string_fn(i).as_str()).fetch_all(&db.pool).await.unwrap()
-			.iter()
-			.rev()
-			.map(|row| {
-				let k = Kline::new(row.get::<i64, usize>(0) as u64,
-								   row.get::<f64, usize>(1) as f32,
-								   row.get::<f64, usize>(2) as f32,
-								   row.get::<f64, usize>(3) as f32,
-								   row.get::<f64, usize>(4) as f32,
-								   row.get::<f64, usize>(5) as f32,
-								   row.get::<i32, usize>(6) as u64
-				);
-
-				k
-			})
-			.collect();
-
-		let (inputs_nonspread, label_gen) = x.split_at(150);
-
-		assert_eq!(inputs_nonspread.len(), 150);
-		assert_eq!(label_gen.len(), 30);
-
-		let inputs_nonspread: Vec<Kline> = inputs_nonspread.iter().map(|k| k.clone()).collect();
-
-		let indicators = get_indicators(&label_gen);
-
-		training_data.push((inputs_nonspread, indicators));
-	}
-
-	training_data
-}
-
 async fn get_training_data(db: &PostgresDatabase, vs: &VarStore, offset: u32) -> Vec<(Tensor, Tensor)> {
 	let mut training_data: Vec<(Tensor, Tensor)> = Vec::new();
 
@@ -345,7 +320,7 @@ async fn get_training_data(db: &PostgresDatabase, vs: &VarStore, offset: u32) ->
 	");
 
 	// 90 days * 24 * 60 / 75 = 1728
-	for i in 0..1728 {
+	for i in 0..(90 * 24 * 60 / offset) /*1728*/ {
 		let x: Vec<Kline> = sqlx::query(query_string_fn(i).as_str()).fetch_all(&db.pool).await.unwrap()
 			.iter()
 			.rev()
@@ -365,6 +340,8 @@ async fn get_training_data(db: &PostgresDatabase, vs: &VarStore, offset: u32) ->
 
 		let (inputs_nonspread, label_gen) = x.split_at(150);
 		let mut inputs_spread: Vec<f32> = Vec::with_capacity(inputs_nonspread.len() * 5);
+		let mut max_price = f32::MIN;
+		let mut min_price = f32::MAX;
 
 		assert_eq!(inputs_nonspread.len(), 150);
 		assert_eq!(label_gen.len(), 30);
@@ -376,9 +353,16 @@ async fn get_training_data(db: &PostgresDatabase, vs: &VarStore, offset: u32) ->
 			inputs_spread.push(entry.close);
 			inputs_spread.push(entry.volume);
 			// inputs_spread.push(entry.num_trades as f32);
+
+			if entry.low < min_price {
+				min_price = entry.low;
+			}
+			if entry.high > max_price {
+				max_price = entry.high;
+			}
 		}
 
-		let indicators = get_indicators(&label_gen);
+		let indicators = get_indicators(&label_gen, min_price, max_price);
 
 		let l = Tensor::of_slice(inputs_spread.as_slice())
 			// .view([1, inputs_spread.len()])
@@ -411,16 +395,17 @@ fn learning_rate(epoch: u32) -> f64 {
 	return 1e-7;
 }
 
-async fn train_net(db: &PostgresDatabase, vs: &mut VarStore, net: &SequentialT, offset: u32) {
+async fn train_net(db: &PostgresDatabase, vs: &mut VarStore, net: &SequentialT, lr_fn: fn(u32) -> f64, offset: u32) {
 
 	const INITIAL_LR: f64 = 1e-3;
 	let mut opt = Adam::default().build(&vs, INITIAL_LR).unwrap();
 	let mut training_data = get_training_data(db, vs, offset).await;
 	let mut rng = rand::thread_rng();
 
-	for epoch in 1..=200 {
+	for epoch in 1..=400 {
 		training_data.shuffle(&mut rng);
-		opt.set_lr(learning_rate(epoch));
+		let lr = lr_fn(epoch);
+		opt.set_lr(lr);
 
 		let mut losses: Vec<f64> = Vec::new();
 
@@ -439,7 +424,7 @@ async fn train_net(db: &PostgresDatabase, vs: &mut VarStore, net: &SequentialT, 
 		let loss_max = get_max_f64(&losses);
 
 		println!(
-			"epoch: {:4} avg: {:8.5} min: {:8.5} max: {:8.5}",
+			"epoch: {:4} \t lr: {lr:1.20} \t avg: {:8.5} \t min: {:8.5} \t max: {:8.5}",
 			epoch,
 			loss_avg,
 			loss_min,
@@ -447,71 +432,21 @@ async fn train_net(db: &PostgresDatabase, vs: &mut VarStore, net: &SequentialT, 
 		);
 	}
 
-	// for data in training_data.iter() {
-	// 	let res = net.forward(&data.0);
-	// 	println!("In: {:?} Out: {:?} Exp: {} \n", &data.0.get(0), res, &data.1);
-	// }
 
-	vs.freeze();
-	let mut closure = |input: &[Tensor]| vec![net.forward_t(&input[0], false)];
-	let model = CModule::create_by_tracing(
-		"MyModule",
-		"forward",
-		&[Tensor::zeros(&[750i64], FLOAT_CUDA)],
-		&mut closure,
-	).unwrap();
-	model.save("net2.pt").unwrap();
-}
-
-
-#[derive(Debug)]
-struct MyLSTM {
-	lstm: LSTM,
-}
-
-impl MyLSTM {
-	fn new(vs: &VarStore, input_size: i64, hidden_size: i64) -> MyLSTM {
-		let lstm = nn::lstm(vs.root(), input_size, hidden_size, Default::default());
-		MyLSTM { lstm }
-	}
-}
-
-impl Module for MyLSTM {
-	fn forward(&self, input: &Tensor) -> Tensor {
-		self.lstm.seq(input).0
-	}
-}
-
-#[derive(Debug)]
-struct MyRNN {
-	lstm: MyLSTM,
-	seq: SequentialT,
-}
-
-impl MyRNN {
-	fn new(vs: &VarStore, input_size: i64, hidden_size: i64, output_size: i64) -> MyRNN {
-		let lstm = MyLSTM::new(vs, input_size, hidden_size);
-		let seq = nn::seq_t()
-			.add(nn::linear(vs.root(), hidden_size, output_size, Default::default()))
-			.add_fn(|xs| xs.relu());
-
-		MyRNN { lstm, seq }
+	for data in training_data.iter() {
+		let res = net.forward_t(&data.0, false);
+		println!("In: {:?} Out: {:?} Exp: {} \n", &data.0.get(0), res, &data.1);
 	}
 
-	fn train(&self, input: &Tensor, label: &Tensor, opt: &mut Optimizer) -> f64 {
-		let output = self.lstm.forward(input);
-		let loss = self.seq.forward_t(&output, true).mse_loss(label, Mean);
-		opt.backward_step(&loss);
-
-		f64::from(&loss)
-	}
-}
-
-impl Module for MyRNN {
-	fn forward(&self, input: &Tensor) -> Tensor {
-		let output = self.lstm.forward(input);
-		self.seq.forward_t(&output, false)
-	}
+	// vs.freeze();
+	// let mut closure = |input: &[Tensor]| vec![net.forward_t(&input[0], false)];
+	// let model = CModule::create_by_tracing(
+	// 	"MyModule",
+	// 	"forward",
+	// 	&[Tensor::zeros(&[750i64], FLOAT_CUDA)],
+	// 	&mut closure,
+	// ).unwrap();
+	// model.save("net4.pt").unwrap();
 }
 
 #[tokio::main]
@@ -537,93 +472,30 @@ async fn main() {
 	// Load training data
 	//
 	let mut vs = VarStore::new(Device::cuda_if_available());
-	println!("cuda: {}", vs.device().is_cuda());
-
-	// Create an instance of the RNN model
-	let input_size = 5; // Number of input features
-	let hidden_size = 64; // Number of hidden units in the LSTM layer
-	let output_size = 3; // Number of output values
-	let rnn = MyRNN::new(&vs, input_size, hidden_size, output_size);
-
-	// Generate a sample input tensor
-	let seq_len = 1728; // Number of batches
-	let batch_size = 150; // Number of samples in a batch
-	let input = Tensor::zeros(&[seq_len, batch_size, input_size], (Float, vs.device()));
-	let label = Tensor::zeros(&[seq_len, output_size], (Float, vs.device()));
-
-	println!("input = {input}");
-
-	let training_data = get_training_data_bare(&db, 75).await;
-
-	//
-	// Fill "input" and "label"
-	//
-	let mut i: i64 = 0;
-	for data in training_data {
-		if i >= seq_len {
-			break;
-		}
-
-		let mut j: i64 = 0;
-
-		// println!("data.0.len = {}", data.0.len());
-		while (j as usize) < data.0.len() {
-			let new_data = data.0.get(j as usize).unwrap();
-
-			let _ = input.i((i, j, 0)).fill_(new_data.open as f64);
-			let _ = input.i((i, j, 1)).fill_(new_data.high as f64);
-			let _ = input.i((i, j, 2)).fill_(new_data.low as f64);
-			let _ = input.i((i, j, 3)).fill_(new_data.close as f64);
-			let _ = input.i((i, j, 4)).fill_(new_data.volume as f64);
-
-			j += 1;
-		}
-
-		// Modify labels tensor to be indicators
-		let _ = label.i((i, 0)).fill_(data.1.min as f64);
-		let _ = label.i((i, 1)).fill_(data.1.max as f64);
-		let _ = label.i((i, 2)).fill_(data.1.avg as f64);
-
-		i += 1;
-	}
-
-	println!("input = {input}");
-	println!("label = {label}");
-
-	let mut opt = Adam::default().build(&vs, 1e-3).unwrap();
-
-	for epoch in 0..1000 {
-		for batch_idx in 0..11 {
-			let start_idx = batch_idx * batch_size;
-			let end_idx = (batch_idx + 1) * batch_size;
-
-			let input_batch = input.narrow(0, start_idx as i64, batch_size as i64).to_device(vs.device());
-			let label_batch = label.narrow(0, start_idx as i64, batch_size as i64).to_device(vs.device());
-			// println!("input_batch = {input_batch}");
-			// println!("label_batch = {label_batch}");
-
-			let (output, _) = rnn.lstm.lstm.seq(&input_batch);
-			// println!("Output = {output}");
-			let output = output.select(0, output.size()[0] - 1);
-			// println!("Output = {output}");
-			let output = rnn.seq.forward_t(&output, true);
-			// println!("Output = {output}");
-			// println!("Label = {label}");
-
-			let loss = output.mse_loss(&label_batch, Mean);
-			opt.backward_step(&loss);
-			println!("Epoch {epoch}: Loss = {loss}");
-		}
-	}
-
-	// Run the RNN model on the input tensor
-	// let output = rnn.forward(&input);
+	println!("cuda = {}", vs.device().is_cuda());
 
 	//
 	// Conventional Training
 	//
-	// let net = get_network_2(&vs);
-	// train_net(&db, &mut vs, &net, 75).await;
+	let layer_counts = [750, 500, 3];
+	println!("layer_counts = {layer_counts:?}");
+	fn lr_fn(epoch: u32) -> f64 {
+
+		// Spiking of learning rate to escape local minima
+		let base = f64::from({
+			if epoch % 30 == 0 {
+				7
+			}
+			else {
+				1
+			}
+		});
+
+		let epoch = f64::from(epoch);
+		return base * 0.01f64 / 10f64.powf(epoch / 28.0);
+	}
+	let net = get_network(&vs, &layer_counts, |x| x.relu());
+	train_net(&db, &mut vs, &net, lr_fn, 60).await;
 
 	//
 	// Loading and training again

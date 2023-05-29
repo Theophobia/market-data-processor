@@ -7,3 +7,5 @@
 *.imp
 
 /log
+
+net*.pt
